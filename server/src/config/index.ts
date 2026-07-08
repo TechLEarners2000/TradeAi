@@ -25,6 +25,17 @@ export const config = {
     enabled: process.env.YAHOO_FINANCE_ENABLED !== 'false',
   },
 
+  upstox: {
+    baseUrl: process.env.UPSTOX_BASE_URL || 'https://api.upstox.com/v2',
+    baseUrlV3: process.env.UPSTOX_BASE_URL_V3 || 'https://api.upstox.com/v3',
+    accessToken: process.env.UPSTOX_ACCESS_TOKEN || '',
+    clientId: process.env.UPSTOX_CLIENT_ID || '',
+    clientSecret: process.env.UPSTOX_CLIENT_SECRET || '',
+    enabled: process.env.UPSTOX_ENABLED !== 'false',
+    rateLimitRps: parseInt(process.env.UPSTOX_RATE_LIMIT_RPS || '5', 10),
+    timeout: parseInt(process.env.UPSTOX_TIMEOUT_MS || '10000', 10),
+  },
+
   stooq: {
     enabled: process.env.STOOQ_ENABLED !== 'false',
   },

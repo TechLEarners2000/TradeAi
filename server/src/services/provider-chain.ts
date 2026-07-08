@@ -6,10 +6,12 @@ import type { CorporateAction, Announcement, BoardMeeting } from '../models/corp
 import type { IndexData, IndexInfo } from '../models/index.js';
 import type { OptionChain } from '../models/option-chain.js';
 import type { MarketStatus } from '../models/market-status.js';
+import { UpstoxProvider } from '../providers/upstox/index.js';
 import { NseProvider } from '../providers/nse/index.js';
 import { BseProvider } from '../providers/bse/index.js';
 import { YahooProvider } from '../providers/yahoo/index.js';
 import { StooqProvider } from '../providers/stooq/index.js';
+import { config } from '../config/index.js';
 import { CircuitBreaker, CircuitOpenError } from '../utils/circuit-breaker.js';
 import * as cache from './cache.js';
 import { logger } from '../utils/logger.js';
@@ -26,18 +28,23 @@ const CIRCUIT_OPTIONS = {
 
 export class ProviderChain implements MarketProvider {
   readonly exchange = 'NSE' as const;
+  private readonly upstox: UpstoxProvider;
   private readonly nse: NseProvider;
   private readonly bse: BseProvider;
   private readonly yahoo: YahooProvider;
   private readonly stooq: StooqProvider;
   private readonly circuits = new Map<string, CircuitBreaker>();
+  private readonly upstoxEnabled: boolean;
 
   constructor(
+    upstoxProvider?: UpstoxProvider,
     nseProvider?: NseProvider,
     bseProvider?: BseProvider,
     yahooProvider?: YahooProvider,
     stooqProvider?: StooqProvider,
   ) {
+    this.upstoxEnabled = config.upstox.enabled && !!config.upstox.accessToken;
+    this.upstox = upstoxProvider || (this.upstoxEnabled ? new UpstoxProvider() : null as any);
     this.nse = nseProvider || new NseProvider();
     this.bse = bseProvider || new BseProvider();
     this.yahoo = yahooProvider || new YahooProvider();
@@ -46,7 +53,12 @@ export class ProviderChain implements MarketProvider {
 
   async init(): Promise<void> {
     await this.nse.init();
-    logger.info('ProviderChain initialized: NSE → BSE → Yahoo → Stooq');
+    const order = this.upstoxEnabled ? 'Upstox → NSE → BSE → Yahoo → Stooq' : 'NSE → BSE → Yahoo → Stooq';
+    logger.info(`ProviderChain initialized: ${order}`);
+  }
+
+  private hasUpstox(): boolean {
+    return this.upstoxEnabled && !!this.upstox;
   }
 
   async getQuote(symbol: string, preferExchange?: 'NSE' | 'BSE'): Promise<MarketQuote> {
@@ -62,6 +74,7 @@ export class ProviderChain implements MarketProvider {
           { name: 'stooq:getQuote', fn: () => this.stooq.getQuote(symbol) },
         ]
       : [
+          ...(this.hasUpstox() ? [{ name: 'upstox:getQuote', fn: () => this.upstox.getQuote(symbol) } as ProviderEntry<MarketQuote>] : []),
           { name: 'nse:getQuote', fn: () => this.nse.getQuote(symbol) },
           { name: 'bse:getQuote', fn: () => this.bse.getQuote(symbol) },
           { name: 'yahoo:getQuote', fn: () => this.yahoo.getQuote(symbol) },
@@ -79,6 +92,7 @@ export class ProviderChain implements MarketProvider {
     if (cached) return cached;
 
     const providers: ProviderEntry<HistoricalCandle[]>[] = [
+      ...(this.hasUpstox() ? [{ name: 'upstox:getHistorical', fn: () => this.upstox.getHistorical(symbol, fromDate, toDate) } as ProviderEntry<HistoricalCandle[]>] : []),
       { name: 'nse:getHistorical', fn: () => this.nse.getHistorical(symbol, fromDate, toDate) },
       { name: 'bse:getHistorical', fn: () => this.bse.getHistorical(symbol, fromDate, toDate) },
       { name: 'yahoo:getHistorical', fn: () => this.yahoo.getHistorical(symbol, fromDate, toDate) },
@@ -157,6 +171,7 @@ export class ProviderChain implements MarketProvider {
     if (cached) return cached;
 
     const providers: ProviderEntry<MarketStatus>[] = [
+      ...(this.hasUpstox() ? [{ name: 'upstox:getMarketStatus', fn: () => this.upstox.getMarketStatus() } as ProviderEntry<MarketStatus>] : []),
       { name: 'nse:getMarketStatus', fn: () => this.nse.getMarketStatus() },
       { name: 'bse:getMarketStatus', fn: () => this.bse.getMarketStatus() },
       { name: 'yahoo:getMarketStatus', fn: () => this.yahoo.getMarketStatus() },
@@ -203,13 +218,19 @@ export class ProviderChain implements MarketProvider {
     const cached = cache.get<OptionChain>(key);
     if (cached) return cached;
 
-    const data = await this.nse.getOptionChain(symbol, expiry);
+    const providers: ProviderEntry<OptionChain>[] = [
+      ...(this.hasUpstox() ? [{ name: 'upstox:getOptionChain', fn: () => this.upstox.getOptionChain(symbol, expiry) } as ProviderEntry<OptionChain>] : []),
+      { name: 'nse:getOptionChain', fn: () => this.nse.getOptionChain(symbol, expiry) },
+    ];
+
+    const data = await this.runChain(providers);
     cache.set(key, data, 30_000);
     return data;
   }
 
   async searchSymbols(query: string): Promise<SearchResult[]> {
     const providers: ProviderEntry<SearchResult[]>[] = [
+      ...(this.hasUpstox() ? [{ name: 'upstox:searchSymbols', fn: () => this.upstox.searchSymbols(query) } as ProviderEntry<SearchResult[]>] : []),
       { name: 'nse:searchSymbols', fn: () => this.nse.searchSymbols(query) },
       { name: 'bse:searchSymbols', fn: () => this.bse.searchSymbols(query) },
       { name: 'yahoo:searchSymbols', fn: () => this.yahoo.searchSymbols(query) },
