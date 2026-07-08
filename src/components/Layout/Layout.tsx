@@ -1,12 +1,14 @@
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import TopNav from './TopNav';
+import MockBanner from '../MockBanner';
 
 export default function Layout() {
   return (
     <div className="h-screen overflow-hidden bg-background">
       <Sidebar />
       <TopNav />
+      <MockBanner />
       <main className="ml-[240px] pt-16 h-full overflow-y-auto">
         <div className="p-6">
           <Outlet />

@@ -1,6 +1,8 @@
 const API_HOST = import.meta.env.VITE_API_HOST || '';
 const BASE = `${API_HOST}/api`;
 
+const SESSION_TTL = 5 * 60 * 1000; // 5 minutes
+
 export interface StockQuote {
   symbol: string;
   price: number;
@@ -38,13 +40,64 @@ export interface PredictionPoint {
   lowerBand: number;
 }
 
+export interface ChatResponse {
+  reply: string;
+}
+
+/** Tracks whether the last API response had _mockLoad: true */
+export let isMockActive = false;
+
+function sessionGet<T>(key: string): { data: T; mock: boolean } | null {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    const entry = JSON.parse(raw);
+    if (Date.now() > entry.expiry) {
+      sessionStorage.removeItem(key);
+      return null;
+    }
+    return { data: entry.data as T, mock: !!entry.mock };
+  } catch {
+    return null;
+  }
+}
+
+function sessionSet(key: string, data: unknown, mock: boolean): void {
+  try {
+    sessionStorage.setItem(key, JSON.stringify({ data, expiry: Date.now() + SESSION_TTL, mock }));
+  } catch {
+    // sessionStorage full or unavailable — silently fail
+  }
+}
+
 async function fetchJson<T>(url: string, opts?: RequestInit): Promise<T> {
+  // Check sessionStorage first
+  const cached = sessionGet<T>(url);
+  if (cached) {
+    if (cached.mock) isMockActive = true;
+    return cached.data;
+  }
+
   const res = await fetch(url, opts);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `HTTP ${res.status}`);
   }
-  return res.json() as Promise<T>;
+  const data = await res.json() as T;
+
+  // Detect _mockLoad flag from server
+  const hasMock = !!(data as any)._mockLoad;
+  if (hasMock) isMockActive = true;
+
+  // Cache in sessionStorage (strip _mockLoad from stored data; arrays don't carry _mockLoad)
+  if (Array.isArray(data)) {
+    sessionSet(url, data, hasMock);
+  } else {
+    const { _mockLoad, ...clean } = data as any;
+    sessionSet(url, clean || data, hasMock);
+  }
+
+  return data;
 }
 
 export async function searchStocks(q: string): Promise<SearchResult[]> {
@@ -68,19 +121,18 @@ export async function getStockList(): Promise<Array<{ symbol: string; name: stri
 }
 
 export async function getPrediction(prices: number[]): Promise<{ prediction: PredictionPoint[] }> {
-  return fetchJson<{ prediction: PredictionPoint[] }>(
-    `${BASE}/prediction?prices=${prices.join(',')}`
-  );
-}
-
-export interface ChatResponse {
-  reply: string;
+  const url = `${BASE}/prediction?prices=${prices.join(',')}`;
+  const cached = sessionGet<{ prediction: PredictionPoint[] }>(url);
+  if (cached) return cached.data;
+  return fetchJson<{ prediction: PredictionPoint[] }>(url);
 }
 
 export async function sendChat(messages: Array<{ role: string; content: string }>): Promise<ChatResponse> {
-  return fetchJson<ChatResponse>(`${BASE}/chat`, {
+  const body = JSON.stringify({ messages });
+  const url = `${BASE}/chat`;
+  return fetchJson<ChatResponse>(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages }),
+    body,
   });
 }

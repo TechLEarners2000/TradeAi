@@ -51,5 +51,11 @@ export const config = {
     timeout: parseInt(process.env.LLM_TIMEOUT_MS || '30000', 10),
   },
 
+  mongodb: {
+    uri: process.env.MONGODB_URI || '',
+    dbName: process.env.MONGODB_DB_NAME || 'tradeai',
+    ttlSeconds: parseInt(process.env.MONGODB_TTL_SECONDS || '3600', 10),
+  },
+
   logLevel: process.env.LOG_LEVEL || 'info',
 };

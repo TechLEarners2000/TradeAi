@@ -8,6 +8,7 @@ import predictionRoutes from './routes/prediction.js';
 import { createHealthRouter } from './routes/health.js';
 import type { ProviderChain } from './services/provider-chain.js';
 import type { LlmClient } from './services/llm-client.js';
+import { connect as mongodbConnect } from './services/mongodb.js';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -70,4 +71,7 @@ app.listen(PORT, async () => {
   } catch (err) {
     console.warn('LlmClient init warning (LLM features may be limited):', (err as Error).message);
   }
+
+  // Non-blocking MongoDB init — server works without it
+  mongodbConnect().catch(() => {});
 });
