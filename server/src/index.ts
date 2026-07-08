@@ -12,7 +12,10 @@ import type { LlmClient } from './services/llm-client.js';
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
-app.use(cors({ origin: ['http://localhost:5173', 'http://localhost:4173'] }));
+const corsOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
+  : ['http://localhost:5173', 'http://localhost:4173'];
+app.use(cors({ origin: corsOrigins }));
 app.use(express.json());
 
 const limiter = rateLimit({

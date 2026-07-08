@@ -1,4 +1,5 @@
-const BASE = import.meta.env.VITE_API_BASE_URL || '/api';
+const API_HOST = import.meta.env.VITE_API_HOST || '';
+const BASE = `${API_HOST}/api`;
 
 export interface StockQuote {
   symbol: string;
